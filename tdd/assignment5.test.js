@@ -16,7 +16,7 @@ const one_sql_line = () => {
     const line = lines.shift().trim();
     if (line.length === 0 || line.startsWith("#")) continue;
     statement += " " + line;
-    if (line.includes(";")) break; // If a semicolon is found, the statement is complete
+    if (line.endsWith(";")) break; // If a semicolon is found, the statement is complete
   }
   return statement.trim() || undefined;
 };
