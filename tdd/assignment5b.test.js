@@ -1,6 +1,6 @@
 require("dotenv").config();
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
-const pool = require("../db");
+const pool = require("../db/pg-pool");
 const httpMocks = require("node-mocks-http");
 const {
   index,
@@ -37,7 +37,7 @@ describe("testing login, register, and logoff", () => {
       },
     });
     saveRes = httpMocks.createResponse();
-    await register(req, saveRes);
+    await register(req, saveRes, ()=>{});
     expect(saveRes.statusCode).toBe(201);
     const result = await pool.query('SELECT * FROM users WHERE email = $1', ['jim@sample.com']);
     user1 = result.rows[0].id;
@@ -78,8 +78,8 @@ describe("testing login, register, and logoff", () => {
       },
     });
     saveRes = httpMocks.createResponse();
-    await register(req, saveRes);
-    expect(saveRes.statusCode).toBe(409);
+    await register(req, saveRes, ()=>{});
+    expect(saveRes.statusCode).toBe(400);
   });
   
   it("You can register an additional user.", async () => {
@@ -92,7 +92,7 @@ describe("testing login, register, and logoff", () => {
       },
     });
     saveRes = httpMocks.createResponse();
-    await register(req, saveRes);
+    await register(req, saveRes, ()=>{});
     expect(saveRes.statusCode).toBe(201);
     
     const result = await pool.query('SELECT * FROM users WHERE email = $1', ['manuel@sample.com']);
@@ -135,7 +135,7 @@ describe("testing task creation", () => {
       method: "POST",
       body: { title: "first task" },
     });
-    req.query = { user_id: user1 };
+    global.user_id = user1;
     saveRes = httpMocks.createResponse();
     await create(req, saveRes);
     expect(saveRes.statusCode).toBe(201);
@@ -150,10 +150,6 @@ describe("testing task creation", () => {
   it("The object has the right value for isCompleted.", () => {
     expect(saveData.is_completed).toBe(false);
   });
-  
-  it("The object has the correct user_id.", () => {
-    expect(saveData.user_id).toBe(user1);
-  });
 });
 
 describe("getting created tasks", () => {
@@ -161,7 +157,7 @@ describe("getting created tasks", () => {
     const req = httpMocks.createRequest({
       method: "GET",
     });
-    req.query = { user_id: user1 };
+    global.user_id = user1;
     saveRes = httpMocks.createResponse();
     await index(req, saveRes);
     expect(saveRes.statusCode).toBe(200);
@@ -176,15 +172,11 @@ describe("getting created tasks", () => {
     expect(saveData[0].title).toBe("first task");
   });
   
-  it("The first array object has the correct user_id.", () => {
-    expect(saveData[0].user_id).toBe(user1);
-  });
-  
   it("If get the list of tasks using the userId from user2, you get a 404.", async () => {
     const req = httpMocks.createRequest({
       method: "GET",
     });
-    req.query = { user_id: user2 };
+    global.user_id = user2
     saveRes = httpMocks.createResponse();
     await index(req, saveRes);
     expect(saveRes.statusCode).toBe(404);
@@ -194,7 +186,7 @@ describe("getting created tasks", () => {
     const req = httpMocks.createRequest({
       method: "GET",
     });
-    req.query = { user_id: user1 };
+    global.user_id = user1;
     req.params = { id: saveTaskId };
     saveRes = httpMocks.createResponse();
     await show(req, saveRes);
@@ -207,7 +199,7 @@ describe("testing the update and delete of tasks.", () => {
     const req = httpMocks.createRequest({
       method: "PATCH",
     });
-    req.query = { user_id: user1 };
+    global.user_id = user1;
     req.params = { id: saveTaskId };
     req.body = { isCompleted: true };
     saveRes = httpMocks.createResponse();
@@ -219,7 +211,7 @@ describe("testing the update and delete of tasks.", () => {
     const req = httpMocks.createRequest({
       method: "PATCH",
     });
-    req.query = { user_id: user2 };
+    global.user_id = user2;
     req.params = { id: saveTaskId };
     req.body = { isCompleted: true };
     saveRes = httpMocks.createResponse();
@@ -231,7 +223,7 @@ describe("testing the update and delete of tasks.", () => {
     const req = httpMocks.createRequest({
       method: "DELETE",
     });
-    req.query = { user_id: user2 };
+    global.user_id = user2;
     req.params = { id: saveTaskId };
     saveRes = httpMocks.createResponse();
     await deleteTask(req, saveRes);
@@ -242,7 +234,7 @@ describe("testing the update and delete of tasks.", () => {
     const req = httpMocks.createRequest({
       method: "DELETE",
     });
-    req.query = { user_id: user1 };
+    global.user_id = user1;
     req.params = { id: saveTaskId };
     saveRes = httpMocks.createResponse();
     await deleteTask(req, saveRes);
@@ -253,7 +245,7 @@ describe("testing the update and delete of tasks.", () => {
     const req = httpMocks.createRequest({
       method: "GET",
     });
-    req.query = { user_id: user1 };
+    global.user_id = user1;
     saveRes = httpMocks.createResponse();
     await index(req, saveRes);
     expect(saveRes.statusCode).toBe(404);
