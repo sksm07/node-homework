@@ -6,7 +6,7 @@ emitter.on("time", (message) => {
 });
 
 setInterval(() => {
-  const currentTime = new Date().toString(); 
+  const currentTime = new Date().toLocaleTimeString(); 
   emitter.emit("time", currentTime);
 }, 5000);
 
