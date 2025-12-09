@@ -1,3 +1,10 @@
+//const {register} = require("./controllers/userController")
+const userRouter = require("./routes/userRoutes");
+
+global.user_id = null;
+global.users = [];
+global.tasks = [];
+
 const express = require("express");
 const app = express();
 const errorHandler = require("./middleware/error-handler");
@@ -10,8 +17,10 @@ app.use((req, res, next) => {
   next();
 })
 
+app.use(express.json({ limit: "1kb" }));
+
 app.get("/", (req, res) => {
-  res.send("Hello, World!");
+  res.json({message: "Hello, World!"});
   
 });
 
@@ -20,9 +29,11 @@ app.get("/error", (req, res) => {
 });
 
 app.post("/testpost", (req, res) => {
-  res.send("POST request to /testpost");
+  res.json({message: "POST request to /testpost"});
 });
 
+//app.post("/api/users", userRouter);
+app.use("/api/users", userRouter);
 app.use(notFound);
 app.use(errorHandler);
 
