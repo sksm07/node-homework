@@ -1,5 +1,7 @@
 //const {register} = require("./controllers/userController")
 const userRouter = require("./routes/userRoutes");
+const taskRouter = require("./routers/taskRoutes");
+const authMiddleware = require("./middleware/auth");
 
 global.user_id = null;
 global.users = [];
@@ -32,8 +34,8 @@ app.post("/testpost", (req, res) => {
   res.json({message: "POST request to /testpost"});
 });
 
-//app.post("/api/users", userRouter);
 app.use("/api/users", userRouter);
+app.use("/api/tasks", authMiddleware, taskRouter);
 app.use(notFound);
 app.use(errorHandler);
 
