@@ -1,5 +1,6 @@
-//const {register} = require("./controllers/userController")
 const userRouter = require("./routes/userRoutes");
+const taskRouter = require("./routes/taskRoutes");
+const authMiddleware = require("./middleware/auth");
 
 global.user_id = null;
 global.users = [];
@@ -19,6 +20,8 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: "1kb" }));
 
+app.use("/api/users", userRouter);
+
 app.get("/", (req, res) => {
   res.json({message: "Hello, World!"});
   
@@ -32,8 +35,8 @@ app.post("/testpost", (req, res) => {
   res.json({message: "POST request to /testpost"});
 });
 
-//app.post("/api/users", userRouter);
-app.use("/api/users", userRouter);
+//app.use("/api/users", userRouter);
+app.use("/api/tasks", authMiddleware, taskRouter);
 app.use(notFound);
 app.use(errorHandler);
 
