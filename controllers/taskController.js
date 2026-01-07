@@ -1,8 +1,9 @@
 const { StatusCodes } = require("http-status-codes");
 const { taskSchema, patchTaskSchema } = require("../validation/taskSchema");
-const pool = require("../db/pg-pool");
 
-const create = async (req, res) => {
+const prisma = require("../db/prisma");
+
+const create = async (req, res, next) => {
     if (!req.body) req.body = {};
 
     const { error, value } = taskSchema.validate(req.body, {
@@ -18,55 +19,85 @@ const create = async (req, res) => {
       return res.status(StatusCodes.BAD_REQUEST).json({ message: "User not logged in" });
     }
     
-    const isCompleted = value.isCompleted ?? false;    
-    const result = await pool.query(
-      `INSERT INTO tasks (title, is_completed, user_id) VALUES($1, $2, $3)
-      RETURNING id, title, is_completed`, [value.title, isCompleted, global.user_id]
-    );
+    try {
     
-    // we don't send back the userId!
-    return res.status(StatusCodes.CREATED).json(result.rows[0]);
+      const task = await prisma.task.create({
+        data: {
+          title: value.title,
+          isCompleted: value.isCompleted ?? false, // default to false if not provided
+          userId: global.user_id, 
+        },
+        select: { id: true, title: true, isCompleted: true }, // not returning userId
+      });
+
+      return res.status(StatusCodes.CREATED).json(task);
+
+    } catch (err) {
+      return next(err);
+    }
 }
 
-const index = async (req, res) => {  
+const index = async (req, res, next) => {  
 
   if (!global.user_id) {
     return res.status(StatusCodes.BAD_REQUEST).json({ message: "User not logged in" });
   }
 
-  const result = await pool.query(
-    `SELECT id, title, is_completed FROM tasks WHERE user_id = $1`,
-    [global.user_id]
-  );
+  try {
+    const tasks = await prisma.task.findMany({
+      where: {
+        userId: global.user_id, // only the tasks for this user!
+      },
+      select: { title: true, isCompleted: true, id: true }
+    });
 
-  if (result.rows.length === 0) {
-    return res.status(StatusCodes.NOT_FOUND).json({ message: "No tasks found for this user." });
-  }
+    if (tasks.length === 0) {
+      return res.status(StatusCodes.NOT_FOUND).json({ message: "No tasks found for this user." });
+    }
 
-  return res.status(StatusCodes.OK).json(result.rows);
+    return res.status(StatusCodes.OK).json(tasks);
+
+  } catch (err) {
+    return next(err);
+  } 
+  
 }
 
-const show = async (req, res) => {
-    const taskId = parseInt(req.params?.id); 
-    if (!taskId) {
+const show = async (req, res, next) => {
+    const id = parseInt(req.params?.id); 
+    if (!id) {
       return res.status(StatusCodes.BAD_REQUEST).json({message: "The task ID passed is not valid."})
     }
     
-    const result = await pool.query(
-       `SELECT id, title, is_completed FROM tasks
-        WHERE id = $1 AND user_id = $2`, [taskId, global.user_id]
-      );
-
-    if(result.rows.length === 0) {
-      return res.status(StatusCodes.NOT_FOUND).json({ message: "That task was not found" })
+    if (!global.user_id) {
+      return res.status(StatusCodes.BAD_REQUEST).json({ message: "User not logged in" });
     }
+    
+    try {
+      const task = await prisma.task.findUnique({
+        where: {
+          id_userId: {
+            id,
+            userId: global.user_id,
+          },
+        },
+        select: { id: true, title: true, isCompleted: true },
+      });
 
-    return res.status(StatusCodes.OK).json(result.rows[0]);
+      // findUnique returns null if not found 
+      if (!task) {
+        return res.status(StatusCodes.NOT_FOUND).json({ message: "That task was not found" });
+      }
+
+      return res.status(StatusCodes.OK).json(task);
+    } catch (err) {
+      return next(err);
+    }
  }
 
-const update = async (req, res) => {
-    const taskId = parseInt(req.params?.id);
-    if(!taskId){
+const update = async (req, res, next) => {
+    const id = parseInt(req.params?.id);
+    if(!id){
       return res.status(StatusCodes.BAD_REQUEST).json({message: "The task ID passed is not valid"});
     }
 
@@ -79,49 +110,60 @@ const update = async (req, res) => {
     if (error) {
       return res.status(StatusCodes.BAD_REQUEST).json({ error: error.message });
     }
-
-    if ("isCompleted" in value) {
-      value.is_completed = value.isCompleted;
-      delete value.isCompleted;
-    }
-
-    const keys = Object.keys(value);
-    if (keys.length === 0) {
+    
+    if (Object.keys(value).length === 0) {
       return res.status(StatusCodes.BAD_REQUEST).json({message: "No valid fields provided for update"});
     }
     
-    const setClauses = keys.map((key, i) => `${key} = $${i+1}`).join(", ");
-    const params = [...Object.values(value), taskId, global.user_id];
+    try {
+      const task = await prisma.task.update({
+        data: value, // Prisma uses camelCase (isCompleted)
+        where: {
+          id_userId: {
+            id,
+            userId: global.user_id,
+          },
+        },
+        select: { id: true, title: true, isCompleted: true },
+      });
 
-    const result = await pool.query(
-      `UPDATE tasks SET ${setClauses} WHERE id = $${keys.length + 1} AND user_id = $${keys.length + 2}
-       RETURNING id, title, is_completed`, params
-    );
+      return res.status(StatusCodes.OK).json(task);
+    } catch (err) {
+      if (err.code === "P2025") {
+        return res.status(StatusCodes.NOT_FOUND).json({ message: "The task was not found." });
+      }
+      return next(err);
+    }  
+  }
 
-    if (result.rows.length === 0) {
-      return res.status(StatusCodes.NOT_FOUND).json({message: "That task was not found"});
-    }
-
-    return res.status(StatusCodes.OK).json(result.rows[0]);
-  
-}
-
-const deleteTask = async (req, res) => {
-    const taskId = parseInt(req.params?.id); 
-    if (!taskId) {
+const deleteTask = async (req, res, next) => {
+    const id = parseInt(req.params?.id); 
+    if (!id) {
       return res.status(StatusCodes.BAD_REQUEST).json({message: "The task ID passed is not valid."})
     }
-    
-    const result = await pool.query(
-      `DELETE FROM tasks WHERE id=$1 AND user_id=$2
-      RETURNING id, title, is_completed`, [taskId, global.user_id]
-    );
+      
+    if (!global.user_id) {
+      return res.status(StatusCodes.BAD_REQUEST).json({ message: "User not logged in" });
+    }
+     
+    try {
+      const task = await prisma.task.delete({
+        where: {
+          id_userId: {
+            id,
+            userId: global.user_id,
+          },
+        },
+        select: { id: true, title: true, isCompleted: true },
+      });
 
-    if (result.rows.length === 0) {
-      return res.status(StatusCodes.NOT_FOUND).json({message: "That task was not found"});  
-    };
-
-    return res.status(StatusCodes.OK).json(result.rows[0]);  
+      return res.status(StatusCodes.OK).json(task);
+    } catch (err) {
+      if (err.code === "P2025") {
+        return res.status(StatusCodes.NOT_FOUND).json({ message: "That task was not found" });
+      }
+      return next(err);
+    }
  };
 
 module.exports = {create, show, index, update, deleteTask}
