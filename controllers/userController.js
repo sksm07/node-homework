@@ -1,6 +1,7 @@
 const {StatusCodes} = require("http-status-codes");
 const { userSchema } = require("../validation/userSchema");
-const pool = require("../db/pg-pool");
+
+const prisma = require("../db/prisma");
 const crypto = require("crypto");
 const util = require("util");
 const scrypt = util.promisify(crypto.scrypt);
@@ -30,46 +31,48 @@ const register = async (req, res, next) => {
     });
   }
 
+  const name = value.name;
+  const email = value.email.toLowerCase();
   const hashedPassword = await hashPassword(value.password);
     
   try {
-    const result = await pool.query(`
-      INSERT INTO users (email, name, hashed_password) VALUES ($1, $2, $3)
-      RETURNING id, email, name`, [value.email, value.name, hashedPassword]
-    );
-    
-    const newUser = result.rows[0];
-    global.user_id = newUser.id;
+    const user = await prisma.user.create({
+      data: { name, email, hashedPassword },
+      select: { id: true, name: true, email: true }, 
+    });
 
+    global.user_id = user.id;
+        
     return res.status(StatusCodes.CREATED).json({
-      name: newUser.name,
-      email: newUser.email
+      name: user.name,
+      email: user.email,
     });
     
-  } catch (e) {
-      if(e.code === "23505"){
-        return res.status(StatusCodes.BAD_REQUEST).json({error: "Email already registered"})
-      }
-      
-      if (typeof next === "function") return next(e);
-      return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: "Internal Server Error" });
+  } catch (err) {
+      if(err.name === "PrismaClientKnownRequestError" && err.code === "P2002") {
+      return res.status(StatusCodes.BAD_REQUEST).json({ error: "Email already registered" });
+    }
+
+    // Other errors go here
+    return next(err);
+  
     }
 };
 
 const logon = async (req, res, next) => {
-  const {email, password} = req.body;
+  let {email, password} = req.body;
 
   try {
-    const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
-     
-    if (result.rows.length === 0){
-      return res.status(StatusCodes.UNAUTHORIZED).json({message: "Authentication Failed"})
+    email = email.toLowerCase();
+    const user = await prisma.user.findUnique({ where: { email }}); 
+
+    if (!user) {
+      return res.status(StatusCodes.UNAUTHORIZED).json({ message: "Authentication Failed" });
     }
 
-    const user = result.rows[0]
     const isValid = await comparePassword(
       password, 
-      user.hashed_password
+      user.hashedPassword
     );
 
     if (!isValid) {
