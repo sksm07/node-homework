@@ -3,7 +3,7 @@ const { taskSchema, patchTaskSchema } = require("../validation/taskSchema");
 
 const prisma = require("../db/prisma");
 
-const create = async (req, res, next) => {
+const create = async (req, res) => {
     if (!req.body) req.body = {};
 
     const { error, value } = taskSchema.validate(req.body, {
@@ -15,8 +15,20 @@ const create = async (req, res, next) => {
         .status(StatusCodes.BAD_REQUEST)
         .json({ error: error.message });
     }
-    if (!global.user_id) {
-      return res.status(StatusCodes.BAD_REQUEST).json({ message: "User not logged in" });
+    const userId = req.user.id;
+    const task = await prisma.task.create({
+        data: {
+          title: value.title,
+          isCompleted: value.isCompleted ?? false, // default to false if not provided
+          priority: value.priority ?? "medium",
+          userId, 
+        },
+        select: { id: true, title: true, isCompleted: true, priority: true }, // not returning userId
+      });
+
+      return res.status(StatusCodes.CREATED).json(task);
+    /*if (!userId) {
+      return next({status: StatusCodes.UNAUTHORIZED, message: "User not logged in" });
     }
     
     try {
@@ -26,7 +38,7 @@ const create = async (req, res, next) => {
           title: value.title,
           isCompleted: value.isCompleted ?? false, // default to false if not provided
           priority: value.priority ?? "medium",
-          userId: global.user_id, 
+          userId, 
         },
         select: { id: true, title: true, isCompleted: true, priority: true }, // not returning userId
       });
@@ -35,7 +47,7 @@ const create = async (req, res, next) => {
 
     } catch (err) {
       return next(err);
-    }
+    }*/
 }
 
 const bulkCreate = async (req, res, next) => {
@@ -46,6 +58,11 @@ const bulkCreate = async (req, res, next) => {
     return res.status(StatusCodes.BAD_REQUEST).json({ 
       error: "Invalid request data. Expected an array of tasks." 
     });
+  }
+  
+  const userId = req.user?.id;
+  if (!userId) {
+    return res.status(StatusCodes.UNAUTHORIZED).json({ message: "User not logged in" });
   }
 
   // Validate all tasks before insertion
@@ -62,7 +79,7 @@ const bulkCreate = async (req, res, next) => {
       title: value.title,
       isCompleted: value.isCompleted || false,
       priority: value.priority || 'medium',
-      userId: global.user_id
+      userId,
     });
   }
 
@@ -84,9 +101,9 @@ const bulkCreate = async (req, res, next) => {
 };
 
 const index = async (req, res, next) => {  
-
-  if (!global.user_id) {
-    return res.status(StatusCodes.BAD_REQUEST).json({ message: "User not logged in" });
+  const userId = req.user?.id;
+  if (!userId) {
+    return res.status(StatusCodes.UNAUTHORIZED).json({ message: "User not logged in" });
   }
 
   try {
@@ -105,7 +122,7 @@ const index = async (req, res, next) => {
       });
     }
     const skip = (page-1) * limit;
-    const whereClause = {userId: global.user_id};
+    const whereClause = {userId: userId};
 
     if (req.query.find) {
       whereClause.title = {
@@ -168,8 +185,9 @@ const show = async (req, res, next) => {
       return res.status(StatusCodes.BAD_REQUEST).json({message: "The task ID passed is not valid."})
     }
     
-    if (!global.user_id) {
-      return res.status(StatusCodes.BAD_REQUEST).json({ message: "User not logged in" });
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(StatusCodes.UNAUTHORIZED).json({ message: "User not logged in" });
     }
     
     try {
@@ -177,7 +195,7 @@ const show = async (req, res, next) => {
         where: {
           id_userId: {
             id,
-            userId: global.user_id,
+            userId: userId,
           },
         },
         select: { 
@@ -225,6 +243,9 @@ const update = async (req, res, next) => {
     if (Object.keys(value).length === 0) {
       return res.status(StatusCodes.BAD_REQUEST).json({message: "No valid fields provided for update"});
     }
+
+    const userId = req.user?.id;
+    if (!userId) return res.status(StatusCodes.UNAUTHORIZED).json({ message: "User not logged in" });
     
     try {
       const task = await prisma.task.update({
@@ -232,7 +253,7 @@ const update = async (req, res, next) => {
         where: {
           id_userId: {
             id,
-            userId: global.user_id,
+            userId: userId,
           },
         },
         select: { id: true, title: true, isCompleted: true, priority: true },
@@ -252,9 +273,9 @@ const deleteTask = async (req, res, next) => {
     if (!id) {
       return res.status(StatusCodes.BAD_REQUEST).json({message: "The task ID passed is not valid."})
     }
-      
-    if (!global.user_id) {
-      return res.status(StatusCodes.BAD_REQUEST).json({ message: "User not logged in" });
+    const userId = req.user?.id;  
+    if (!userId) {
+      return res.status(StatusCodes.UNAUTHORIZED).json({ message: "User not logged in" });
     }
      
     try {
@@ -262,7 +283,7 @@ const deleteTask = async (req, res, next) => {
         where: {
           id_userId: {
             id,
-            userId: global.user_id,
+            userId: userId,
           },
         },
         select: { id: true, title: true, isCompleted: true },
