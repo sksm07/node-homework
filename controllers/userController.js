@@ -6,6 +6,33 @@ const crypto = require("crypto");
 const util = require("util");
 const scrypt = util.promisify(crypto.scrypt);
 
+const { randomUUID } = require("crypto");
+const jwt = require("jsonwebtoken");
+
+const cookieFlags = (req) => {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production", // only when HTTPS is available
+    sameSite: "Strict",
+  };
+};
+
+const setJwtCookie = (req, res, user) => {
+  // Sign JWT
+  const payload = { 
+    id: user.id, 
+    csrfToken: randomUUID() 
+  };
+  const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "1h" }); // 1 hour expiration
+  // Set cookie.  Note that the cookie flags have to be different in production and in test.
+  res.cookie("jwt", token, { 
+    ...cookieFlags(req), 
+    maxAge: 3600000 
+  }); 
+
+  return payload.csrfToken; // this is needed in the body returned by logon() or register()
+};
+
 async function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
   const derivedKey = await scrypt(password, salt, 64);
@@ -21,8 +48,7 @@ async function comparePassword(inputPassword, storedHash) {
 
 const register = async (req, res, next) => {
   if (!req.body) req.body = {};
-  global.user_id = null;
-
+  
   const {error, value} = userSchema.validate(req.body, {abortEarly: false,});
   if (error) {
     return res.status(StatusCodes.BAD_REQUEST).json({ 
@@ -69,15 +95,18 @@ const register = async (req, res, next) => {
       return { user: newUser, welcomeTasks };
     });
 
-    // Store the user ID globally for session management (not secure for production)
-    global.user_id = result.user.id;
+    const csrfToken = setJwtCookie(req, res, result.user);
     
-    res.status(201).json({
-      user: result.user,
+    return res.status(StatusCodes.CREATED).json({
+      user: {
+        name: result.user.name,
+        email: result.user.email,
+      },
+      csrfToken,
       welcomeTasks: result.welcomeTasks,
       transactionStatus: "success"
     });
-    return;
+    
   } catch (err) {
     if (err.code === "P2002") {
       return res.status(400).json({ error: "Email already registered" });
@@ -115,12 +144,13 @@ const logon = async (req, res, next) => {
       return res.status(StatusCodes.UNAUTHORIZED).json({ message: "Authentication Failed" });
     }
 
-   global.user_id = user.id;
+    const csrfToken = setJwtCookie(req, res, user);
 
-   return res.status(StatusCodes.OK).json({
-     name: user.name,
-     email: user.email
-   });
+    return res.status(StatusCodes.OK).json({
+      name: user.name,
+      email: user.email,
+      csrfToken,
+    });
   } catch (err) {
     if (typeof next === "function") return next(err);
     return res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: "Internal Server Error" });
@@ -128,8 +158,10 @@ const logon = async (req, res, next) => {
 };
 
 const logoff = (req, res) => {
-  global.user_id = null;
-  return res.sendStatus(StatusCodes.OK);
+  res.clearCookie("jwt", cookieFlags(req))
+  return res.status(StatusCodes.OK).json({
+    message: "logged out",
+  });
 }
 
 module.exports = {register, logon, logoff};
