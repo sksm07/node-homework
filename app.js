@@ -30,7 +30,7 @@ app.use((req, res, next) => {
 })
 
 app.use(cookieParser());
-app.use(express.json({ limit: "1kb" }));
+app.use(express.json({ limit: "5mb" }));
 app.use(xss());
 
 app.use("/api/users", userRouter);
