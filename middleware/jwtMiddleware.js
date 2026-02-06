@@ -19,7 +19,8 @@ module.exports = async (req, res, next) => {
     }
     req.user = { id: decoded.id }; 
     // the id is kept for subsequent use in access control. 
-      
+    console.log("HEADER CSRF:", req.get("X-CSRF-TOKEN"));
+    console.log("JWT CSRF:", decoded.csrfToken);  
     if ( ["POST", "PATCH", "PUT", "DELETE", "CONNECT"].includes(req.method)) {
     // for these operations we have to check for cross site request forgery
       if (req.get("X-CSRF-TOKEN") != decoded.csrfToken) {
