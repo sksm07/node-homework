@@ -179,6 +179,88 @@ const index = async (req, res, next) => {
   
 }
 
+const inCompleteTasks = async (req, res, next) => {  
+  const userId = req.user?.id;
+  if (!userId) {
+    return res.status(StatusCodes.UNAUTHORIZED).json({ message: "User not logged in" });
+  }
+
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    
+    if (page < 1) {
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        message: "Page must be greater than or equal to 1",
+      });
+    }
+
+    if (limit < 1 || limit > 100) {
+      return res.status(StatusCodes.BAD_REQUEST).json({
+        message: "Limit must be between 1 and 100",
+      });
+    }
+    const skip = (page-1) * limit;
+    const whereClause = {
+      userId: userId,
+      isCompleted: false,
+    };
+
+    if (req.query.find) {
+      whereClause.title = {
+        contains: req.query.find,
+        mode: 'insensitive'
+      }
+    }
+    const tasks = await prisma.task.findMany({
+      where: whereClause, // only the tasks for this user,
+      select: { 
+        title: true, 
+        isCompleted: true, 
+        id: true,
+        priority: true,
+        createdAt: true,
+        User: {
+          select: {
+            name: true,
+            email: true
+          }
+        }
+       },
+       skip: skip,
+       take: limit,
+       orderBy: {createdAt: 'desc'}
+    });
+
+    const totalTasks = await prisma.task.count({
+      where: whereClause
+    });
+    const pages = Math.ceil(totalTasks/limit);
+
+    const pagination = {
+      page: page,
+      limit,
+      total: totalTasks,
+      pages,
+      hasNext: (page * limit) < totalTasks,
+      hasPrev: page > 1
+    }
+
+    if (tasks.length === 0) {
+      return res.status(StatusCodes.NOT_FOUND).json({ message: "No tasks found for this user." });
+    }
+
+    return res.status(StatusCodes.OK).json({
+      tasks: tasks,
+      pagination: pagination
+    });
+
+  } catch (err) {
+    return next(err);
+  } 
+  
+}
+
 const show = async (req, res, next) => {
     const id = parseInt(req.params?.id); 
     if (!id) {
@@ -298,4 +380,4 @@ const deleteTask = async (req, res, next) => {
     }
  };
 
-module.exports = {create, bulkCreate, show, index, update, deleteTask}
+module.exports = {create, bulkCreate, show, index, inCompleteTasks, update, deleteTask}
